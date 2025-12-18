@@ -216,7 +216,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Extra
-instances
-models
-data
+/instances
+/models
+/data
 .venv

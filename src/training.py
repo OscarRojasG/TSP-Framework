@@ -1,9 +1,11 @@
 from torch.utils.data import DataLoader, TensorDataset, random_split
 import torch
+from torch import nn
 import os
 import numpy as np
 from .data_gen import read_train_data
 from .settings import models_path as model_folder_path
+import copy
 
 
 class Metrics:
@@ -39,7 +41,7 @@ def load_data(file_path):
     dataset = TensorDataset(X_src, visited, Y)
     return dataset
 
-def train(model, dataset, epochs, train_size, test_size, batch_size, learning_rate, seed=42):
+def train(model: nn.Module, dataset, epochs, train_size, test_size, batch_size, learning_rate, seed=42):
     # --- CONFIGURAR DISPOSITIVO ---
     device = torch.device("cuda" if torch.cuda.is_available() 
                           else "mps" if torch.backends.mps.is_available() 
@@ -66,6 +68,10 @@ def train(model, dataset, epochs, train_size, test_size, batch_size, learning_ra
     # Métricas
     train_metrics = Metrics()
     test_metrics = Metrics()
+
+    # Guardar mejor modelo
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = float("-inf")
 
     for epoch in range(epochs):
         # --- ENTRENAMIENTO ---
@@ -105,6 +111,19 @@ def train(model, dataset, epochs, train_size, test_size, batch_size, learning_ra
             f'Train Accuracy: {train_metrics.acc_history[-1]:.2f}% - '
             f'Val Loss: {test_metrics.loss_history[-1]:.4f}, Val Accuracy: {test_metrics.acc_history[-1]:.2f}%')
         
+        # Actualizar mejor modelo
+        if test_metrics.acc_history[-1] > best_acc:
+            best_acc = test_metrics.acc_history[-1]
+            best_model_wts = copy.deepcopy(model.state_dict())
+
+    # Cargar los mejores pesos del modelo
+    model.load_state_dict(best_model_wts)
+    return model
+        
 def save_model(model, filename):
     os.makedirs(model_folder_path, exist_ok=True)
     torch.save(model.state_dict(), model_folder_path + filename)
+
+def load_model(model: nn.Module, filename):
+    model.load_state_dict(torch.load(model_folder_path + filename, weights_only=True), strict=False)
+    return model
