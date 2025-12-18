@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 class TSP_Instance:
     def __init__(self, city_locations):
@@ -32,3 +33,27 @@ class TSP_State():
         if self.is_finished():
             return self.cost + self.instance.distance_matrix[self.current_city][self.tour[0]]
         return self.cost
+    
+    def plot(self):
+        # Separar las coordenadas x e y de los puntos
+        x = [self.instance.city_locations[i][0] for i in self.tour]
+        y = [self.instance.city_locations[i][1] for i in self.tour]
+
+        # Agregar el primer punto al final para cerrar el tour
+        if self.is_finished():
+            x.append(x[0])
+            y.append(y[0])
+
+        # Graficar los puntos
+        plt.scatter(x, y)
+
+        # Graficar las líneas del tour
+        plt.plot(x, y)
+
+        # Agregar títulos y etiquetas si es necesario
+        plt.title("Tour")
+        plt.xlabel("Coordenada X")
+        plt.ylabel("Coordenada Y")
+
+        # Mostrar el gráfico
+        plt.show()
