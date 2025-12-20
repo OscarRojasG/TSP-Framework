@@ -125,5 +125,6 @@ def save_model(model, filename):
     torch.save(model.state_dict(), model_folder_path + filename)
 
 def load_model(model: nn.Module, filename):
-    model.load_state_dict(torch.load(model_folder_path + filename, weights_only=True), strict=False)
+    model.load_state_dict(torch.load(model_folder_path + filename, weights_only=True), strict=True)
+    model.eval()
     return model
