@@ -38,7 +38,7 @@ def generate_instances(filename, instance_count=1, cities=20, seed=42):
     save_instances(filename, instances)
     return instances
 
-def generate_train_data(instance_file, data_filename):
+def generate_train_data(instance_file, data_filename, size=10000):
     instances = read_instances(instance_file)
     X_src_all = []
     visited_all = []
@@ -58,6 +58,12 @@ def generate_train_data(instance_file, data_filename):
             visited_all.append(visited)
             Y_all.append(Y)
             state.visit_city(city)
+
+            if len(X_src_all) >= size:
+                break
+        
+        if len(X_src_all) >= size:
+            break
     
     save_train_data(data_filename, np.array(X_src_all), np.array(visited_all), np.array(Y_all))
 

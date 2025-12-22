@@ -4,33 +4,19 @@ from torch import nn
 import os
 import numpy as np
 from .data_gen import read_train_data
-from .settings import models_path as model_folder_path
+from .settings import models_path, hyperparams_path
 import copy
+import json
 
 
 class Metrics:
     def __init__(self):
         self.loss_history = []
         self.acc_history = []
-        self.reset_epoch()
 
-    def reset_epoch(self):
-        self.loss_sum = 0
-        self.correct = 0
-        self.total = 0
-
-    def update_batch(self, outputs, targets, loss, batch_size):
-        self.loss_sum += loss * batch_size
-        self.total += batch_size
-        _, predicted = torch.max(outputs.data, 1)
-        self.correct += (predicted == targets.argmax(dim=1)).sum().item()
-
-    def end_epoch(self):
-        epoch_loss = self.loss_sum / self.total if self.total > 0 else 0
-        epoch_acc = 100 * self.correct / self.total if self.total > 0 else 0
-        self.loss_history.append(epoch_loss)
-        self.acc_history.append(epoch_acc)
-        self.reset_epoch()
+    def add_epoch(self, loss, acc):
+        self.loss_history.append(loss)
+        self.acc_history.append(acc)
 
 
 def load_data(file_path):
@@ -40,6 +26,67 @@ def load_data(file_path):
     Y = torch.tensor(np.array(Y), dtype=torch.int32)
     dataset = TensorDataset(X_src, visited, Y)
     return dataset
+
+def train_epoch(model: nn.Module, train_loader: DataLoader, loss_function, optimizer, device):
+    model.train()
+    
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+
+    for X_src_batch, visited_batch, y_batch in train_loader:
+        X_src_batch = X_src_batch.to(device)
+        visited_batch = visited_batch.to(device)
+        y_batch = y_batch.to(device)
+
+        optimizer.zero_grad()
+
+        outputs = model(X_src_batch, visited_batch)
+
+        labels = y_batch.argmax(dim=-1)
+        loss = loss_function(outputs, labels)
+
+        loss.backward()
+        optimizer.step()
+
+        # Acumulación de métricas
+        batch_size = labels.size(0)
+        total_loss += loss.item() * batch_size
+        total_correct += (outputs.argmax(dim=1) == labels).sum().item()
+        total_samples += batch_size
+
+    loss = total_loss / total_samples
+    accuracy = 100 * total_correct / total_samples
+
+    return loss, accuracy
+
+def val_epoch(model: nn.Module, val_loader: DataLoader, loss_function, device):
+    model.eval()
+    
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+
+    with torch.no_grad():
+        for X_src_batch, visited_batch, y_batch in val_loader:
+            X_src_batch = X_src_batch.to(device)
+            visited_batch = visited_batch.to(device)
+            y_batch = y_batch.to(device)
+
+            outputs = model(X_src_batch, visited_batch)
+
+            labels = y_batch.argmax(dim=-1)
+            loss = loss_function(outputs, labels)
+
+            batch_size = labels.size(0)
+            total_loss += loss.item() * batch_size
+            total_correct += (outputs.argmax(dim=1) == labels).sum().item()
+            total_samples += batch_size
+
+    loss = total_loss / total_samples
+    accuracy = 100 * total_correct / total_samples
+
+    return loss, accuracy
 
 def train(model: nn.Module, dataset, epochs, train_size, test_size, batch_size, learning_rate, seed=42):
     # --- CONFIGURAR DISPOSITIVO ---
@@ -74,57 +121,39 @@ def train(model: nn.Module, dataset, epochs, train_size, test_size, batch_size, 
     best_acc = float("-inf")
 
     for epoch in range(epochs):
-        # --- ENTRENAMIENTO ---
-        model.train()
-        for X_src_batch, visited_batch, y_batch in train_loader:
-            # Mover los datos al dispositivo
-            X_src_batch = X_src_batch.to(device)
-            visited_batch = visited_batch.to(device)
-            y_batch = y_batch.to(device)
+        train_loss, train_acc = train_epoch(model, train_loader, loss_function, optimizer, device)
+        val_loss, val_acc = val_epoch(model, test_loader, loss_function, device)
 
-            optimizer.zero_grad()
-            outputs = model.forward(X_src_batch, visited_batch)
-            loss = loss_function(outputs, y_batch.argmax(dim=-1))
-            loss.backward()
-            optimizer.step()
-
-            train_metrics.update_batch(outputs, y_batch, loss.item(), X_src_batch.size(0))
-        train_metrics.end_epoch()
-
-        # --- VALIDACIÓN ---
-        model.eval()
-        with torch.no_grad():
-            for X_src_batch, visited_batch, y_batch in test_loader:
-                # Mover los datos al dispositivo
-                X_src_batch = X_src_batch.to(device)
-                visited_batch = visited_batch.to(device)
-                y_batch = y_batch.to(device)
-
-                outputs = model.forward(X_src_batch, visited_batch)
-                loss = loss_function(outputs, y_batch.argmax(dim=-1))
-
-                test_metrics.update_batch(outputs, y_batch, loss.item(), X_src_batch.size(0))
-        test_metrics.end_epoch()
+        train_metrics.add_epoch(train_loss, train_acc)
+        test_metrics.add_epoch(val_loss, val_acc)
 
         print(f'Epoch {epoch + 1}/{epochs} - '
-            f'Train Loss: {train_metrics.loss_history[-1]:.4f}, '
-            f'Train Accuracy: {train_metrics.acc_history[-1]:.2f}% - '
-            f'Val Loss: {test_metrics.loss_history[-1]:.4f}, Val Accuracy: {test_metrics.acc_history[-1]:.2f}%')
-        
+            f'Train Loss: {train_loss:.4f}, '
+            f'Train Accuracy: {train_acc:.2f}% - '
+            f'Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.2f}%')
+
         # Actualizar mejor modelo
-        if test_metrics.acc_history[-1] > best_acc:
-            best_acc = test_metrics.acc_history[-1]
+        if val_acc > best_acc:
+            best_acc = val_acc
             best_model_wts = copy.deepcopy(model.state_dict())
 
     # Cargar los mejores pesos del modelo
     model.load_state_dict(best_model_wts)
     return model
         
-def save_model(model, filename):
-    os.makedirs(model_folder_path, exist_ok=True)
-    torch.save(model.state_dict(), model_folder_path + filename)
+def save_model(model, model_name):
+    os.makedirs(hyperparams_path, exist_ok=True)
+    with open(hyperparams_path + model_name + ".json", 'w') as f:
+        json.dump(model.hyperparams, f, indent=4)
 
-def load_model(model: nn.Module, filename):
-    model.load_state_dict(torch.load(model_folder_path + filename, weights_only=True), strict=True)
+    os.makedirs(models_path, exist_ok=True)
+    torch.save(model.state_dict(), models_path + model_name + ".pth")
+
+def load_model(model_class: object, model_name):
+    with open(hyperparams_path + model_name + ".json", 'r') as f:
+        hyperparams = json.load(f)
+
+    model = model_class(**hyperparams)
+    model.load_state_dict(torch.load(models_path + model_name + ".pth", weights_only=True), strict=True)
     model.eval()
     return model

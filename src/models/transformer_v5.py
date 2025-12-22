@@ -34,8 +34,8 @@ class TSPTransformer(Transformer):
         self.ctx_fusion = nn.Linear(3 * embed_dim, embed_dim)
 
         # Cross Attention
-        # Añadido LayerNorm y Feed-Forward después de la atención
         self.num_glimpses = num_glimpses
+        self.glimpse_proj = nn.Linear(embed_dim, embed_dim) # NUEVO: Proyección antes de glimpse
 
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=embed_dim,
@@ -52,7 +52,7 @@ class TSPTransformer(Transformer):
         self.norm2 = nn.LayerNorm(embed_dim)
 
         # Pointer Scorer
-        self.pointer = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.pointer_proj = nn.Linear(embed_dim, embed_dim, bias=False)
 
     # =====================================================
     # 1. --- ENCODER ---
@@ -117,10 +117,10 @@ class TSPTransformer(Transformer):
         ctx_concat = torch.cat(
             [context_mean, last_city_embed, start_city_embed], dim=-1
         )  # (B, 3D)
-        decoder_query = self.ctx_fusion(ctx_concat)  # (B, D)
+        decoder_state = self.ctx_fusion(ctx_concat)  # (B, D)
 
         # 5. --- DECODER: Cross-Attention (Glimpse) ---
-        query = decoder_query.unsqueeze(1)  # (B, 1, D)
+        query = self.glimpse_proj(decoder_state).unsqueeze(1)
 
         for _ in range(self.num_glimpses):
             attn_out, _ = self.cross_attn(
@@ -137,7 +137,7 @@ class TSPTransformer(Transformer):
         attn_out = query.squeeze(1)         # (B, D)
 
         # 6. --- DECODER: Pointer scoring ---
-        ptr_query = self.pointer(attn_out)             # (B, D)
+        ptr_query = self.pointer_proj(attn_out)        # (B, D)
 
         scores = torch.matmul(
             ptr_query.unsqueeze(1),                    # (B, 1, D)

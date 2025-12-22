@@ -2,8 +2,9 @@ from abc import ABC, abstractmethod
 import torch.nn as nn
 
 class Transformer(nn.Module, ABC):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **hyperparams):
+        super(Transformer, self).__init__()
+        self.hyperparams = hyperparams
 
     @abstractmethod
     def encode(self, x_src):

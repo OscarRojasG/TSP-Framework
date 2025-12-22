@@ -1,17 +1,13 @@
 import torch
 import numpy as np
 from ..TSP import TSP_State
-from ..data_gen import read_instances
 from ..models.base.transformer import Transformer
 
 class ModelSolver():
     def __init__(self, model: Transformer):
         self.model = model
 
-    def solve(self, instance_file, instance_number):
-        instances = read_instances(instance_file)
-        instance = instances[instance_number]
-
+    def solve(self, instance):
         state = TSP_State(instance)
 
         # Generar memoria encoder
