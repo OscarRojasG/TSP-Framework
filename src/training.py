@@ -149,6 +149,10 @@ def save_model(model, model_name):
     os.makedirs(models_path, exist_ok=True)
     torch.save(model.state_dict(), models_path + model_name + ".pth")
 
+def load_hyperparams(model_name):
+    with open(hyperparams_path + model_name + ".json", 'r') as f:
+        return json.load(f)
+
 def load_model(model_class: object, model_name):
     with open(hyperparams_path + model_name + ".json", 'r') as f:
         hyperparams = json.load(f)
