@@ -1,14 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-class TSP_Instance:
+class TSPInstance:
     def __init__(self, city_locations):
         self.city_locations = city_locations
         self.num_cities = len(city_locations)
         self.distance_matrix = np.sqrt(np.sum((city_locations[:, np.newaxis, :] -  city_locations[np.newaxis, :, :]) ** 2, axis=-1))
 
-class TSP_State():
-    def __init__(self, instance: TSP_Instance):
+class TSPState():
+    def __init__(self, instance: TSPInstance):
         self.instance = instance
         self.num_cities = instance.num_cities
         self.visited = [False] * self.num_cities

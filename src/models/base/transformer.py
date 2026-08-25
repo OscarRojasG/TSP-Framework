@@ -7,27 +7,27 @@ class Transformer(nn.Module, ABC):
         self.hyperparams = hyperparams
 
     @abstractmethod
-    def encode(self, x_src):
+    def encode(self, *inputs):
         """
-        x_src: entrada cruda del encoder
+        inputs: todos los tensores crudos provenientes del dataset (input)
         returns:
-            memory: representación latente
+            memory: representación latente (salida del encoder)
         """
         pass
 
     @abstractmethod
-    def decode(self, memory, visited):
+    def decode(self, memory, *inputs):
         """
         memory: salida del encoder
-        visited: estado del decoder
-        returns:
-            probs / logits
+        inputs: todos los tensores crudos provenientes del dataset (input)
         """
         pass
 
-    def forward(self, x_src, visited):
+    def forward(self, *inputs):
         """
-        Forward genérico: encoder una vez, decoder una vez
+        Forward genérico: 
+        1. Pasa todos los inputs al encoder para obtener la memoria.
+        2. Pasa la memoria y todos los inputs al decoder.
         """
-        memory = self.encode(x_src)
-        return self.decode(memory, visited)
+        memory = self.encode(*inputs)
+        return self.decode(memory, *inputs)
