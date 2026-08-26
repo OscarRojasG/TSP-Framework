@@ -11,7 +11,7 @@ class BasicInputAdapter(InputAdapter):
         }, max_cities)
 
     def input_2_vec(self, state: TSPState):
-        coords = np.array(state.instance.city_locations)
+        coords = np.array(state.instance.city_locations, dtype=np.float32)
         num_cities_actual = len(coords)
         
         # Padding para coordenadas (matriz N x 2)
