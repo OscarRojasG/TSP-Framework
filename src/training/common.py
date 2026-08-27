@@ -11,7 +11,7 @@ class LRConfig:
     patience: int = 999999  # Épocas sin mejora antes de reducir el LR
     min: float = 0.0        # Tasa de aprendizaje mínima permitida
 
-def save_model(model, model_name):
+def save_model(model, model_name, verbose=True):
     os.makedirs(HYPERPARAMETERS_FOLDER, exist_ok=True)
     with open(str(HYPERPARAMETERS_FOLDER / model_name) + ".json", 'w') as f:
         json.dump(model.hyperparams, f, indent=4)
@@ -19,7 +19,8 @@ def save_model(model, model_name):
     os.makedirs(MODELS_FOLDER, exist_ok=True)
     weights = model.state_dict()
     torch.save(weights, str(MODELS_FOLDER / model_name) + ".pth")
-    print(f"✅ Modelo guardado en {MODELS_FOLDER / model_name}.pth")
+    if verbose:
+        print(f"** Modelo guardado en {MODELS_FOLDER / model_name}.pth")
 
 def load_hyperparams(model_name):
     with open(str(HYPERPARAMETERS_FOLDER / model_name) + ".json", 'r') as f:
