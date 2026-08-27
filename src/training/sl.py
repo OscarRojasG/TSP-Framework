@@ -59,16 +59,16 @@ def config_training(model, seed):
     torch.set_num_threads(os.cpu_count())
     return model.to(device), device
 
-def generate_sets(dataset, train_size, test_size, seed):
+def generate_sets(dataset, train_size, val_size, seed):
     generator = torch.Generator().manual_seed(seed)
-    remaining_size = len(dataset) - train_size - test_size
+    remaining_size = len(dataset) - train_size - val_size
 
-    train_set, test_set, _ = random_split(
+    train_set, val_set, _ = random_split(
         dataset, 
-        [train_size, test_size, remaining_size],
+        [train_size, val_size, remaining_size],
         generator=generator
     )
-    return train_set, test_set
+    return train_set, val_set
 
 def print_epoch_results(loss_fn, train_metrics, val_metrics, metrics):
     train_loss = train_metrics.get_last_value(loss_fn.__class__)
@@ -85,12 +85,14 @@ def print_epoch_results(loss_fn, train_metrics, val_metrics, metrics):
     if metrics_strs:
         print(f"    {' | '.join(metrics_strs)}")
 
-def train(model, epochs, train_set, test_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, device):
+def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, seed=42):
+    model, device = config_training(model, seed)
+
     num_workers = os.cpu_count() or 1
     use_pin_memory = device.type in ['cuda', 'mps']
 
     train_loader = DataLoader(train_set, batch_size=batch_size, num_workers=num_workers, pin_memory=use_pin_memory, shuffle=True)
-    test_loader = DataLoader(test_set, batch_size=batch_size, num_workers=num_workers, pin_memory=use_pin_memory)
+    val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=num_workers, pin_memory=use_pin_memory)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr_config.value, weight_decay=weight_decay)
     
@@ -120,7 +122,7 @@ def train(model, epochs, train_set, test_set, batch_size, lr_config: LRConfig, w
             train_metrics.add_value(m.__class__, val)
 
         # --- VAL ---
-        val_loss_val, val_m_vals = val_epoch(model, test_loader, loss_fn, metrics, device)
+        val_loss_val, val_m_vals = val_epoch(model, val_loader, loss_fn, metrics, device)
         
         val_metrics.add_value(loss_fn.__class__, val_loss_val)
         for m, val in zip(metrics, val_m_vals):
@@ -156,15 +158,16 @@ def train(model, epochs, train_set, test_set, batch_size, lr_config: LRConfig, w
 
     return model, train_metrics, val_metrics
 
-def sl_train(model, epochs, dataset, train_size, test_size, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, seed=42):
-    model, device = config_training(model, seed)
-    train_set, test_set = generate_sets(dataset, train_size, test_size, seed)
+
+'''
+def sl_train(model, epochs, dataset, train_size, val_size, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, seed=42):
+    train_set, val_set = generate_sets(dataset, train_size, val_size, seed)
     
     return train(
         model=model, 
         epochs=epochs, 
         train_set=train_set, 
-        test_set=test_set, 
+        val_set=val_set, 
         batch_size=batch_size, 
         lr_config=lr_config, 
         weight_decay=weight_decay, 
@@ -173,3 +176,4 @@ def sl_train(model, epochs, dataset, train_size, test_size, batch_size, lr_confi
         metrics=metrics, 
         device=device
     )
+'''
