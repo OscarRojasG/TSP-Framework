@@ -217,8 +217,9 @@ __marimo__/
 
 # Extra
 /instances/*
-/models
-/data
+/models/*
+/data/*
+/experiments/*
 .venv
 
 !/instances/benchmarks

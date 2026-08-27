@@ -1,6 +1,7 @@
 import os
 import torch
 import json
+import random
 from dataclasses import dataclass
 from settings import MODELS_FOLDER, HYPERPARAMETERS_FOLDER
 
@@ -10,6 +11,17 @@ class LRConfig:
     factor: float = 0.5     # Factor de reducción
     patience: int = 999999  # Épocas sin mejora antes de reducir el LR
     min: float = 0.0        # Tasa de aprendizaje mínima permitida
+
+def config_training(model, seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+
+    device = torch.device("cuda" if torch.cuda.is_available() 
+                          else "mps" if torch.backends.mps.is_available() 
+                          else "cpu")
+    print(f"** Usando dispositivo: {device}")
+    torch.set_num_threads(os.cpu_count())
+    return model.to(device), device
 
 def save_model(model, model_name, verbose=True):
     os.makedirs(HYPERPARAMETERS_FOLDER, exist_ok=True)

@@ -1,10 +1,11 @@
+import json
 import torch
 import os
 import copy
-import random
 from torch.utils.data import DataLoader, random_split
 from training.metrics import EpochMetrics
 from training.common import *
+from settings import EXPERIMENTS_FOLDER
 
 def train_epoch(model, train_loader, optimizer, loss_fn, metrics, device):
     model.train()
@@ -48,17 +49,6 @@ def val_epoch(model, val_loader, loss_fn, metrics, device):
     
     return loss_val, m_values
 
-def config_training(model, seed):
-    random.seed(seed)
-    torch.manual_seed(seed)
-
-    device = torch.device("cuda" if torch.cuda.is_available() 
-                          else "mps" if torch.backends.mps.is_available() 
-                          else "cpu")
-    print(f"ℹ️ Usando dispositivo: {device}")
-    torch.set_num_threads(os.cpu_count())
-    return model.to(device), device
-
 def generate_sets(dataset, train_size, val_size, seed):
     generator = torch.Generator().manual_seed(seed)
     remaining_size = len(dataset) - train_size - val_size
@@ -85,9 +75,7 @@ def print_epoch_results(loss_fn, train_metrics, val_metrics, metrics):
     if metrics_strs:
         print(f"    {' | '.join(metrics_strs)}")
 
-def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, seed=42):
-    model, device = config_training(model, seed)
-
+def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, metrics_filename, device):
     num_workers = os.cpu_count() or 1
     use_pin_memory = device.type in ['cuda', 'mps']
 
@@ -107,6 +95,7 @@ def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, we
     )
 
     train_metrics, val_metrics = EpochMetrics(), EpochMetrics()
+    history = []  # Lista para ir recolectando las métricas en cada época
     
     best_val_score = float('-inf') if loss_fn.maximize else float('inf')
     best_weights = None
@@ -127,6 +116,18 @@ def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, we
         val_metrics.add_value(loss_fn.__class__, val_loss_val)
         for m, val in zip(metrics, val_m_vals):
             val_metrics.add_value(m.__class__, val)
+
+        # --- REGISTRO PARA EL JSON ---
+        epoch_data = {
+            "epoch": epoch,
+            f"train_{loss_fn.name}": float(train_loss_val),
+            f"val_{loss_fn.name}": float(val_loss_val)
+        }
+        for m, t_val, v_val in zip(metrics, train_m_vals, val_m_vals):
+            epoch_data[f"train_{m.name}"] = float(t_val)
+            epoch_data[f"val_{m.name}"] = float(v_val)
+        
+        history.append(epoch_data)
 
         # Imprimir resultados
         print(f"{'\n' if epoch == 1 else ''}Epoch {epoch}/{epochs}")
@@ -151,29 +152,21 @@ def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, we
             print(f"** Early stopping en época {epoch}. Sin mejora de métrica objetivo durante {patience} épocas.")
             break
 
+    # --- GUARDAR HISTORIAL EN JSON ---
+    os.makedirs(EXPERIMENTS_FOLDER, exist_ok=True)
+    file_path = os.path.join(str(EXPERIMENTS_FOLDER), metrics_filename)
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=4)
+    print(f"\n** Historial de entrenamiento guardado en: {file_path}")
+
     # Restaurar los mejores pesos
     if best_weights is not None:
         model.load_state_dict(best_weights)
-        print(f"\n** Mejor modelo restaurado (Época {best_epoch}): {loss_fn.name} = {loss_fn.format(best_val_score)}")
+        print(f"** Mejor modelo restaurado (Época {best_epoch}): {loss_fn.name} = {loss_fn.format(best_val_score)}")
 
     return model, train_metrics, val_metrics
 
-
-'''
-def sl_train(model, epochs, dataset, train_size, val_size, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, seed=42):
-    train_set, val_set = generate_sets(dataset, train_size, val_size, seed)
-    
-    return train(
-        model=model, 
-        epochs=epochs, 
-        train_set=train_set, 
-        val_set=val_set, 
-        batch_size=batch_size, 
-        lr_config=lr_config, 
-        weight_decay=weight_decay, 
-        loss_fn=loss_fn, 
-        patience=patience, 
-        metrics=metrics, 
-        device=device
-    )
-'''
+def sl_train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, metrics_filename: str, seed=42):
+    model, device = config_training(model, seed)
+    return train(model, epochs, train_set, val_set, batch_size, lr_config, weight_decay, loss_fn, patience, metrics, metrics_filename, device)

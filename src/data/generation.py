@@ -78,7 +78,7 @@ def generate_data(instances, input_adapter_config, output_adapter_config, num_wo
 
     return input_data, output_data
 
-def save_data(input_data, output_data, filename):
+def save_data(input_data, output_data, filename, verbose=True):
     """Guarda los diccionarios de datos en formato HDF5."""
     os.makedirs(DATA_FOLDER, exist_ok=True)
     output_path = DATA_FOLDER / filename
@@ -99,7 +99,9 @@ def save_data(input_data, output_data, filename):
 
     # Imprimimos el tamaño usando una de las llaves como referencia
     ref_key = input_keys[0]
-    print(f"Datos guardados en: {output_path} (Tamaño: {len(input_data[ref_key])})")
+
+    if verbose:
+        print(f"Datos guardados en: {output_path} (Tamaño: {len(input_data[ref_key])})")
 
 def generate_train_data(instance_file, data_filename, input_adapter_config, output_adapter_config, num_workers=4, size=10000):
     """Lee el archivo, orquesta la generación paralela y guarda limitando al 'size'."""
