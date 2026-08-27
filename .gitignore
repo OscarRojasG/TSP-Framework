@@ -221,5 +221,6 @@ __marimo__/
 /data/*
 /experiments/*
 .venv
+optuna.py
 
 !/instances/benchmarks
