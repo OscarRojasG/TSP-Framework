@@ -8,5 +8,5 @@ class OutputAdapter(DataAdapter):
         super().__init__(data_keys, max_cities)
 
     @abstractmethod
-    def output_2_vec(self, state: TSPState, best_city):
+    def output_2_vec(self, state: TSPState, best_city, final_cost):
         pass

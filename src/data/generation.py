@@ -1,5 +1,6 @@
 import os
 import h5py
+from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from settings import DATA_FOLDER
 from instances.instances import read_instances
@@ -21,7 +22,7 @@ def init_worker(input_adapter_config, output_adapter_config):
     worker_input_adapter = in_class(*in_args)
     worker_output_adapter = out_class(*out_args)
 
-def generate_data_from_instance(instance):
+def generate_data_from_instance(instance, only_initial_state=False):
     """Resuelve una instancia de TSP y extrae los vectores de cada estado."""
     solution = solve(instance)
     
@@ -37,24 +38,31 @@ def generate_data_from_instance(instance):
     for city in solution.tour[1:-1]:
         # Usamos los adaptadores abstractos inicializados en el worker
         input_vec = worker_input_adapter.input_2_vec(state)
-        output_vec = worker_output_adapter.output_2_vec(state, city)
+        output_vec = worker_output_adapter.output_2_vec(state, city, solution.get_total_cost())
 
         input_vecs.append(input_vec)
         output_vecs.append(output_vec)
+
+        # Si solo queremos el estado inicial, rompemos el ciclo tras la primera iteración
+        if only_initial_state:
+            break
 
         # Actualizamos el estado visitando la ciudad
         state.visit_city(city)
 
     return input_vecs, output_vecs
 
-def generate_data(instances, input_adapter_config, output_adapter_config, num_workers):
+def generate_data(instances, input_adapter_config, output_adapter_config, num_workers, only_initial_state=False):
     """Ejecuta la generación de datos en paralelo para una lista de instancias."""
+    worker_func = partial(generate_data_from_instance, only_initial_state=only_initial_state)
+
     with ProcessPoolExecutor(
         max_workers=num_workers,
         initializer=init_worker,
         initargs=(input_adapter_config, output_adapter_config)
     ) as executor:
-        results = list(executor.map(generate_data_from_instance, instances))
+        # Usamos worker_func en lugar de la función original
+        results = list(executor.map(worker_func, instances))
 
     # Inicializamos adaptadores en el proceso principal para recolectar resultados
     in_class, *in_args = input_adapter_config
@@ -103,7 +111,7 @@ def save_data(input_data, output_data, filename, verbose=True):
     if verbose:
         print(f"Datos guardados en: {output_path} (Tamaño: {len(input_data[ref_key])})")
 
-def generate_train_data(instance_file, data_filename, input_adapter_config, output_adapter_config, num_workers=4, size=10000):
+def generate_train_data(instance_file, data_filename, input_adapter_config, output_adapter_config, num_workers=4, size=999999, only_initial_state=False):
     """Lee el archivo, orquesta la generación paralela y guarda limitando al 'size'."""
     instances = read_instances(instance_file)
     
@@ -111,7 +119,8 @@ def generate_train_data(instance_file, data_filename, input_adapter_config, outp
         instances, 
         input_adapter_config, 
         output_adapter_config, 
-        num_workers
+        num_workers,
+        only_initial_state
     )
 
     # Truncamiento de datos para respetar el parámetro 'size' original
