@@ -15,8 +15,8 @@ El corazón de este framework se encuentra en los siguientes notebooks, diseñad
 2. `glimpse.ipynb`
    Análisis del mecanismo **Glimpse** (Cross-Attention iterativo). Cómo permitir que el decodificador "eche un vistazo" extra a la memoria del encoder antes de decidir la próxima ciudad.
 
-3. `architecture_variants.ipynb`
-   Exploración de las arquitecturas base (Encoder-Decoder basados en Transformers). Se analizan distintas formas de procesar el contexto y representar el estado del tour.
+3. `inductive_bias.ipynb`
+   Exploración de arquitecturas con sesgo inductivo. Se analiza cómo inyectar información explícita sobre la distancia entre ciudades para guiar las decisiones del modelo y acelerar su aprendizaje.
 
 4. `positional_encoding.ipynb`
    Estrategias de codificación posicional. Implementación de **Spatial Positional Encoding** (para inyectar consciencia 2D nativa) y **Circular Positional Encoding** (para secuencias cerradas).
