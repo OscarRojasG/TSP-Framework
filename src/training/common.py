@@ -2,8 +2,9 @@ import os
 import torch
 import json
 import random
+import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from settings import MODELS_FOLDER, HYPERPARAMETERS_FOLDER
+from settings import MODELS_FOLDER, HYPERPARAMETERS_FOLDER, EXPERIMENTS_FOLDER
 
 @dataclass
 class LRConfig:
@@ -46,3 +47,43 @@ def load_model(model_class: object, model_name):
     model.load_state_dict(torch.load(str(MODELS_FOLDER / model_name) + ".pth", weights_only=True, map_location=torch.device('cpu')), strict=True)
     model.eval()
     return model
+
+def plot_metrics(filename):
+    """
+    Lee un archivo de métricas JSON y genera un gráfico de convergencia 
+    por cada métrica registrada, mostrando las curvas de train y val.
+    """
+    file_path = EXPERIMENTS_FOLDER / filename
+    
+    with open(file_path, 'r', encoding='utf-8') as f:
+        metrics_data = json.load(f)
+        
+    if not metrics_data:
+        print("El archivo de métricas está vacío.")
+        return
+
+    # Extraer las métricas base eliminando el prefijo 'train_'
+    first_entry = metrics_data[0]
+    base_metrics = [
+        key.replace("train_", "") 
+        for key in first_entry.keys() if key.startswith("train_")
+    ]
+    
+    epochs = [entry["epoch"] for entry in metrics_data]
+
+    # Generar una figura independiente para cada métrica
+    for metric in base_metrics:
+        train_values = [entry[f"train_{metric}"] for entry in metrics_data]
+        val_values = [entry[f"val_{metric}"] for entry in metrics_data]
+
+        plt.figure(figsize=(8, 5))
+        plt.plot(epochs, train_values, label=f'Train {metric}', marker='o')
+        plt.plot(epochs, val_values, label=f'Validation {metric}', marker='s')
+        
+        plt.title(f'Convergencia - {metric}')
+        plt.xlabel('Época')
+        plt.ylabel(metric)
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.show()
