@@ -2,11 +2,10 @@ from data.adapters.input.input_adapter import InputAdapter
 from TSP import TSPState
 import numpy as np
 
-class BiasInputAdapter(InputAdapter):
+class DefaultInputAdapter(InputAdapter):
     def __init__(self, max_cities=100):
         super().__init__({
             "coords": np.float32,
-            "distances": np.float32,
             "visited": np.int32,
             "num_cities": np.int32
         }, max_cities)
@@ -23,4 +22,4 @@ class BiasInputAdapter(InputAdapter):
         # Padding para ciudades visitadas (vector N)
         visited = np.pad(np.array(state.tour), (0, self.max_cities - len(state.tour)), 'constant', constant_values=-1)
 
-        return coords, state.instance.distance_matrix, visited, state.instance.num_cities
+        return coords, visited, state.instance.num_cities

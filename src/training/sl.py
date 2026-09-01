@@ -75,7 +75,7 @@ def print_epoch_results(loss_fn, train_metrics, val_metrics, metrics):
     if metrics_strs:
         print(f"    {' | '.join(metrics_strs)}")
 
-def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, metrics_filename, device):
+def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, loss_fn, metrics, metrics_filename, patience, weight_decay, device):
     num_workers = os.cpu_count() or 1
     use_pin_memory = device.type in ['cuda', 'mps']
 
@@ -165,8 +165,8 @@ def train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, we
         model.load_state_dict(best_weights)
         print(f"** Mejor modelo restaurado (Época {best_epoch}): {loss_fn.name} = {loss_fn.format(best_val_score)}")
 
-    return model, train_metrics, val_metrics
+    return model
 
-def sl_train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, weight_decay, loss_fn, patience, metrics, metrics_filename: str, seed=42):
+def sl_train(model, epochs, train_set, val_set, batch_size, lr_config: LRConfig, loss_fn, metrics, metrics_filename, patience=999999, weight_decay=0, seed=42):
     model, device = config_training(model, seed)
-    return train(model, epochs, train_set, val_set, batch_size, lr_config, weight_decay, loss_fn, patience, metrics, metrics_filename, device)
+    return train(model, epochs, train_set, val_set, batch_size, lr_config, loss_fn, metrics, metrics_filename, patience, weight_decay, device)

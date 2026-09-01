@@ -64,7 +64,7 @@ def load_dataset(filepath, max_size=None, verbose=True):
 
 def split_dataset(filename: str, train_size: int, seed: int = 42) -> tuple:
     """
-    Lee el dataset original, lo mezcla y lo divide en Train y Test.
+    Lee el dataset original, lo mezcla y lo divide en Train y Val.
     Retorna los nombres de los nuevos archivos generados.
     """
     input_path = DATA_FOLDER / filename
@@ -83,28 +83,28 @@ def split_dataset(filename: str, train_size: int, seed: int = 42) -> tuple:
     indices = np.random.permutation(total_samples)
     
     train_indices = indices[:train_size]
-    test_indices = indices[train_size:]
+    val_indices = indices[train_size:]
 
     # --- TRAIN SET (Base) ---
     train_inputs = {k: inputs[k][train_indices] for k in input_keys}
     train_outputs = {k: outputs[k][train_indices] for k in output_keys}
 
     # --- TEST SET (Intacto) ---
-    test_inputs = {k: inputs[k][test_indices] for k in input_keys}
-    test_outputs = {k: outputs[k][test_indices] for k in output_keys}
+    val_inputs = {k: inputs[k][val_indices] for k in input_keys}
+    val_outputs = {k: outputs[k][val_indices] for k in output_keys}
 
     # Crear nombres de archivo
     base_name = filename.replace(".h5", "").replace(".data", "")
     train_filename = f"{base_name}_train.h5"
-    test_filename = f"{base_name}_test.h5"
+    val_filename = f"{base_name}_val.h5"
     
     print(f"Guardando Train puro ({len(train_indices)} muestras) en: {train_filename}")
     save_h5_dataset(DATA_FOLDER / train_filename, train_inputs, train_outputs, input_keys, output_keys)
     
-    print(f"Guardando Test puro ({len(test_indices)} muestras) en: {test_filename}")
-    save_h5_dataset(DATA_FOLDER / test_filename, test_inputs, test_outputs, input_keys, output_keys)
+    print(f"Guardando Val puro ({len(val_indices)} muestras) en: {val_filename}")
+    save_h5_dataset(DATA_FOLDER / val_filename, val_inputs, val_outputs, input_keys, output_keys)
     
-    return train_filename, test_filename
+    return train_filename, val_filename
 
 def save_h5_dataset(filepath, input_data, output_data, input_keys, output_keys):
     """

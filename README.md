@@ -9,8 +9,8 @@ El proyecto está construido bajo una filosofía educativa y experimental, divid
 
 El corazón de este framework se encuentra en los siguientes notebooks, diseñados para ser explorados de forma secuencial o independiente:
 
-1. `cost_prediction.ipynb`
-   Predicción del costo óptimo. Un primer acercamiento a la arquitectura Transformer resolviendo un problema de regresión más sencillo (estimar la distancia final del tour) para familiarizarse con los embeddings y el procesamiento del encoder antes de generar secuencias.
+1. `introduction.ipynb`
+   Fundamentos del framework y flujo de trabajo básico. Introducción a la generación de instancias, representación de estados mediante adaptadores, configuración de un *pipeline* de entrenamiento supervisado con Transformers y validación del modelo frente a oráculos como OR-Tools.
 
 2. `glimpse.ipynb`
    Análisis del mecanismo **Glimpse** (Cross-Attention iterativo). Cómo permitir que el decodificador "eche un vistazo" extra a la memoria del encoder antes de decidir la próxima ciudad.

@@ -4,17 +4,19 @@ from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from settings import DATA_FOLDER
 from instances.instances import read_instances
-from solvers.ortools import solve
+from solvers.ortools import ORToolsSolver
 from TSP import TSPState
 
 # Variables globales para los workers
 worker_input_adapter = None
 worker_output_adapter = None
+worker_solver = None
 
 def init_worker(input_adapter_config, output_adapter_config):
-    """Inicializa los adaptadores globalmente en cada proceso worker."""
+    """Inicializa los adaptadores y el solver globalmente en cada proceso worker."""
     global worker_input_adapter
     global worker_output_adapter
+    global worker_solver
 
     in_class, *in_args = input_adapter_config
     out_class, *out_args = output_adapter_config
@@ -22,9 +24,12 @@ def init_worker(input_adapter_config, output_adapter_config):
     worker_input_adapter = in_class(*in_args)
     worker_output_adapter = out_class(*out_args)
 
+    worker_solver = ORToolsSolver()
+
 def generate_data_from_instance(instance, only_initial_state=False):
     """Resuelve una instancia de TSP y extrae los vectores de cada estado."""
-    solution = solve(instance)
+    
+    solution = worker_solver.solve_instance(instance)
     
     # Si la instancia no se pudo resolver, retornamos None
     if not solution or not solution.tour:

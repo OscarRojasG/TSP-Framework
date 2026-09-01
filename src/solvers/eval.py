@@ -1,5 +1,6 @@
 import os
 import torch
+import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from settings import INSTANCE_FOLDER
 from instances.instances import read_instances
@@ -70,3 +71,11 @@ def evaluate(model, instance_file, input_adapter_config, num_workers=None):
     print(f"** Evaluación completada. Costo promedio: {avg_cost:.4f}")
     
     return solutions
+
+# Función para calcular el gap de optimalidad promedio porcentual
+def calculate_gap(model_sols, ort_sols):
+    gaps = []
+    for m_sol, o_sol in zip(model_sols, ort_sols):
+        gap = ((m_sol.get_total_cost() - o_sol.get_total_cost()) / o_sol.get_total_cost()) * 100
+        gaps.append(gap)
+    return np.mean(gaps)
