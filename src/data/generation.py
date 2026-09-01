@@ -116,7 +116,7 @@ def save_data(input_data, output_data, filename, verbose=True):
     if verbose:
         print(f"Datos guardados en: {output_path} (Tamaño: {len(input_data[ref_key])})")
 
-def generate_train_data(instance_file, data_filename, input_adapter_config, output_adapter_config, num_workers=4, size=999999, only_initial_state=False):
+def generate_train_data(instance_file, data_filename, input_adapter_config, output_adapter_config, num_workers=None, size=999999, only_initial_state=False):
     """Lee el archivo, orquesta la generación paralela y guarda limitando al 'size'."""
     instances = read_instances(instance_file)
     

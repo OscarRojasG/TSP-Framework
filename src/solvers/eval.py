@@ -5,77 +5,101 @@ from concurrent.futures import ProcessPoolExecutor
 from settings import INSTANCE_FOLDER
 from instances.instances import read_instances
 from solvers.model import ModelSolver 
+from solvers.ortools import ORToolsSolver
 
-# Variable global para cada proceso worker
+# ==========================================
+# Workers para el Modelo PyTorch
+# ==========================================
 worker_solver = None
 
 def init_worker(model_cls, model_hyperparams, model_weights, input_adapter_config):
-    """
-    Inicializa el modelo, el adaptador y el solver independientemente en cada worker.
-    """
+    """Inicializa el modelo y el adapter en cada worker para evitar bloqueos por Pickling."""
     global worker_solver
-    
-    # 1. Evitar que cada proceso acapare todos los hilos del CPU
     torch.set_num_threads(1)
     
-    # 2. Reconstruir el adaptador
     adapter_cls, *adapter_args = input_adapter_config
     input_adapter = adapter_cls(*adapter_args)
     
-    # 3. Reconstruir el modelo
     model = model_cls(**model_hyperparams)
     model.load_state_dict(model_weights)
     
-    # 4. Crear el solver
     worker_solver = ModelSolver(model, input_adapter)
 
 def evaluate_single_instance(instance):
-    """
-    Función que ejecuta cada worker de manera aislada.
-    """
     return worker_solver.solve_instance(instance)
 
+
+# ==========================================
+# Workers para OR-Tools
+# ==========================================
+ort_worker_solver = None
+
+def init_ortools_worker():
+    """Inicializa el solver de OR-Tools en cada worker."""
+    global ort_worker_solver
+    ort_worker_solver = ORToolsSolver()
+
+def evaluate_ortools_single_instance(instance):
+    return ort_worker_solver.solve_instance(instance)
+
+
+# ==========================================
+# Función principal de Evaluación y Comparación
+# ==========================================
 def evaluate(model, instance_file, input_adapter_config, num_workers=None):
     """
-    Función principal para evaluar instancias en paralelo.
+    Evalúa instancias en paralelo usando el Modelo y OR-Tools, 
+    e imprime los costos promedios, el gap y la desviación estándar.
     """
     if num_workers is None:
         num_workers = os.cpu_count() or 1
         
-    # Leer las instancias
     instance_path = INSTANCE_FOLDER / instance_file
     instances = read_instances(instance_path)
 
-    # Extraer configuración y pesos del modelo para enviarlos a los workers
+    print(f"Iniciando evaluación conjunta de {len(instances)} instancias con {num_workers} workers...")
+
+    # 1. Evaluación con el Modelo
     model_cls = model.__class__
     model_hyperparams = model.hyperparams
-    
-    # Pasamos los pesos a CPU antes de enviarlos para evitar errores de Pickle con tensores CUDA
     model_weights = {k: v.cpu() for k, v in model.state_dict().items()}
 
-    print(f"Iniciando evaluación de {len(instances)} instancias con {num_workers} workers...")
-
-    # Paralelismo usando ProcessPoolExecutor
     with ProcessPoolExecutor(
         max_workers=num_workers,
         initializer=init_worker,
         initargs=(model_cls, model_hyperparams, model_weights, input_adapter_config)
     ) as executor:
-        # executor.map mantiene el mismo orden de la lista de instancias original
-        solutions = list(executor.map(evaluate_single_instance, instances))
+        model_sols = list(executor.map(evaluate_single_instance, instances))
         
-    # Calcular e imprimir el costo promedio
-    total_cost = sum(sol.cost for sol in solutions)
-    avg_cost = total_cost / len(solutions)
-    
-    print(f"** Evaluación completada. Costo promedio: {avg_cost:.4f}")
-    
-    return solutions
+    # 2. Evaluación con OR-Tools
+    with ProcessPoolExecutor(
+        max_workers=num_workers,
+        initializer=init_ortools_worker
+    ) as executor:
+        ort_sols = list(executor.map(evaluate_ortools_single_instance, instances))
 
-# Función para calcular el gap de optimalidad promedio porcentual
-def calculate_gap(model_sols, ort_sols):
+    # 3. Cálculo de métricas
+    # Nota: Se utiliza sol.cost asumiendo la estructura del código original proporcionado
+    model_costs = [sol.get_total_cost() for sol in model_sols]
+    ort_costs = [sol.get_total_cost() for sol in ort_sols]
+    
+    model_avg = np.mean(model_costs)
+    ort_avg = np.mean(ort_costs)
+    
     gaps = []
-    for m_sol, o_sol in zip(model_sols, ort_sols):
-        gap = ((m_sol.get_total_cost() - o_sol.get_total_cost()) / o_sol.get_total_cost()) * 100
+    for m_cost, o_cost in zip(model_costs, ort_costs):
+        gap = ((m_cost - o_cost) / o_cost) * 100
         gaps.append(gap)
-    return np.mean(gaps)
+        
+    gap_mean = np.mean(gaps)
+    gap_std = np.std(gaps)
+    
+    print("\n" + "="*40)
+    print("RESULTADOS DE LA VALIDACIÓN")
+    print("="*40)
+    print(f"Costo promedio Modelo:   {model_avg:.2f}")
+    print(f"Costo promedio OR-Tools: {ort_avg:.2f}")
+    print(f"Gap de optimalidad:      {gap_mean:.2f}% ± {gap_std:.2f}%")
+    print("="*40 + "\n")
+    
+    return model_sols, ort_sols
