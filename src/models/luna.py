@@ -4,26 +4,48 @@ import math
 from models.base.transformer import Transformer
 
 # =====================================================
-# --- MÓDULO LUNA (Linear Unified Nested Attention) ---
+# --- 1. MÓDULO DE POSITIONAL ENCODING CÍCLICO (CPE) ---
 # =====================================================
+class CircularPositionalEncoding(nn.Module):
+    def __init__(self, embed_dim=128):
+        super().__init__()
+        self.embed_dim = embed_dim
+        div_term = torch.exp(
+            torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim)
+        )
+        self.register_buffer('div_term', div_term)
 
+    def forward(self, seq_len, num_cities):
+        B = num_cities.shape[0]
+        device = num_cities.device
+        
+        pos = torch.arange(seq_len, dtype=torch.float, device=device).unsqueeze(0).unsqueeze(-1)
+        term1 = pos * self.div_term
+        
+        N = num_cities.unsqueeze(1).unsqueeze(2).float()
+        term2 = (2 * math.pi * pos) / N
+        
+        angles = term1 + term2
+        
+        cpe = torch.zeros(B, seq_len, self.embed_dim, device=device)
+        cpe[:, :, 0::2] = torch.sin(angles)
+        cpe[:, :, 1::2] = torch.cos(angles)
+        
+        return cpe
+
+# =====================================================
+# --- 2. MÓDULO LUNA (Linear Unified Nested Attention) ---
+# =====================================================
 class LUNALayer(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout=0.1):
         super().__init__()
         
-        # 1. PACK: El contexto P atiende a la secuencia X
-        self.pack_attn = nn.MultiheadAttention(
-            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
-        )
+        self.pack_attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm_p = nn.LayerNorm(embed_dim)
 
-        # 2. UNPACK: La secuencia X atiende al contexto P
-        self.unpack_attn = nn.MultiheadAttention(
-            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
-        )
+        self.unpack_attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
         self.norm_x1 = nn.LayerNorm(embed_dim)
 
-        # 3. Feed Forward para X
         self.ff = nn.Sequential(
             nn.Linear(embed_dim, 4 * embed_dim),
             nn.ReLU(),
@@ -34,45 +56,22 @@ class LUNALayer(nn.Module):
         self.norm_x2 = nn.LayerNorm(embed_dim)
 
     def forward(self, x, p, pad_mask):
-        """
-        x: (Batch, N, D) - Secuencia original
-        p: (Batch, P, D) - Tensor de contexto
-        pad_mask: (Batch, N) - Máscara de padding de X
-        """
-        # --- FASE 1: PACK (Empaquetar) ---
-        # Query = P, Key/Value = X. 
-        # P "lee" toda la información de X (ignorando el padding de X)
-        p_out, _ = self.pack_attn(
-            query=p, 
-            key=x, 
-            value=x, 
-            key_padding_mask=pad_mask
-        )
+        # PACK: P resume X
+        p_out, _ = self.pack_attn(query=p, key=x, value=x, key_padding_mask=pad_mask)
         p = self.norm_p(p + p_out)
 
-        # --- FASE 2: UNPACK (Desempaquetar) ---
-        # Query = X, Key/Value = P. 
-        # X "recupera" la información global resumida en P.
-        # No hay máscara porque P tiene un tamaño fijo sin padding.
-        x_out, _ = self.unpack_attn(
-            query=x, 
-            key=p, 
-            value=p
-        )
+        # UNPACK: X recupera la información de P
+        x_out, _ = self.unpack_attn(query=x, key=p, value=p)
         x = self.norm_x1(x + x_out)
 
-        # --- FASE 3: FEED FORWARD ---
+        # FFN
         x = self.norm_x2(x + self.ff(x))
-
         return x, p
 
-
 # =====================================================
-# --- ARQUITECTURA PRINCIPAL ---
+# --- 3. ARQUITECTURA PRINCIPAL (CPE + LUNA DECODER) ---
 # =====================================================
-
 class TSPTransformer(Transformer):
-    # Añadimos p_len como parámetro (longitud del tensor auxiliar P)
     def __init__(self, input_dim=2, embed_dim=128, num_heads=8, num_encoder_layers=2, num_glimpses=2, dropout_rate=0.1, p_len=16):
         super().__init__(
             input_dim=input_dim,
@@ -81,32 +80,30 @@ class TSPTransformer(Transformer):
             num_encoder_layers=num_encoder_layers,
             num_glimpses=num_glimpses,
             dropout_rate=dropout_rate,
-            p_len=p_len
         )
         self.embed_dim = embed_dim
         
-        # --- ENCODER (LUNA) ---
+        # --- ENCODER (Estándar O(N^2) porque solo se corre 1 vez) ---
         self.encoder_input_layer = nn.Linear(input_dim, embed_dim)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim, nhead=num_heads, dropout=dropout_rate, batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers, enable_nested_tensor=False)
         
-        # Parámetro aprendible global para el tensor de contexto P
+        # --- DECODER (Secuencial con LUNA y CPE) ---
+        self.circular_pe = CircularPositionalEncoding(embed_dim=embed_dim)
+        
+        # Parámetro global P para el mecanismo LUNA del historial
         self.aux_tensor = nn.Parameter(torch.randn(1, p_len, embed_dim))
         
-        # Apilamos las capas LUNA
-        self.luna_layers = nn.ModuleList([
-            LUNALayer(embed_dim, num_heads, dropout_rate) for _ in range(num_encoder_layers)
-        ])
-        
-        # --- DECODER ---
-        self.ctx_fusion = nn.Linear(3 * embed_dim, embed_dim)
+        # Reemplazamos el Self-Attention estándar por la capa LUNA
+        self.tour_luna = LUNALayer(embed_dim, num_heads, dropout_rate)
 
+        # Glimpse / Pointer Network
         self.num_glimpses = num_glimpses
         self.glimpse_proj = nn.Linear(embed_dim, embed_dim)
-
         self.cross_attn = nn.MultiheadAttention(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            dropout=dropout_rate,
-            batch_first=True
+            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout_rate, batch_first=True
         )
         self.norm1 = nn.LayerNorm(embed_dim)
         self.ff = nn.Sequential(
@@ -115,7 +112,6 @@ class TSPTransformer(Transformer):
             nn.Linear(4 * embed_dim, embed_dim)
         )
         self.norm2 = nn.LayerNorm(embed_dim)
-
         self.pointer_proj = nn.Linear(embed_dim, embed_dim, bias=False)
 
     def _get_pad_mask(self, max_len, num_cities, device):
@@ -123,79 +119,60 @@ class TSPTransformer(Transformer):
         return idx >= num_cities.unsqueeze(1)
 
     # =====================================================
-    # 1. --- ENCODER ---
-    # =====================================================
     def encode(self, coords, visited, num_cities):
         B, max_cities, _ = coords.shape
         device = coords.device
 
         pad_mask = self._get_pad_mask(max_cities, num_cities, device)
-        x = self.encoder_input_layer(coords)
+        enc_input = self.encoder_input_layer(coords)
         
-        # Expandimos el tensor P global para que coincida con el tamaño del Batch
-        # (Batch, P_len, embed_dim)
-        p = self.aux_tensor.expand(B, -1, -1)
-        
-        # Pasamos la secuencia original (x) y el contexto (p) por las capas LUNA
-        for layer in self.luna_layers:
-            x, p = layer(x, p, pad_mask)
-            
-        return x
+        # El Encoder global mantiene su visión completa (se ejecuta 1 sola vez)
+        memory = self.encoder(enc_input, src_key_padding_mask=pad_mask) 
+        return memory
 
     # =====================================================
-    # 2. --- DECODER ---
-    # =====================================================
     def decode(self, memory, coords, visited, num_cities):
-        """
-        memory:     (Batch, max_cities, embed_dim) -> Salida del encoder
-        coords:     (Batch, max_cities, 2) -> Ignorado en el decoder
-        visited:    (Batch, max_cities) -> Índices ciudades visitadas (-1 para padding)
-        num_cities: (Batch,) -> Cantidad real de ciudades
-        """
         B, max_cities, _ = memory.shape
         device = memory.device
 
-        # 1. --- MÁSCARA PADDING ---
+        # 1. --- MÁSCARAS GENERALES ---
         pad_mask = self._get_pad_mask(max_cities, num_cities, device)
+        valid_visits = (visited != -1)
 
-        # 2. --- MÁSCARA CIUDADES VISITADAS ---
-        visited_mask_pos = visited != -1          # (B, max_cities)
-
-        visited_city_mask = torch.zeros(
-            B, max_cities, dtype=torch.bool, device=device
-        )
-        batch_ids, pos_ids = visited_mask_pos.nonzero(as_tuple=True)
+        visited_city_mask = torch.zeros(B, max_cities, dtype=torch.bool, device=device)
+        batch_ids, pos_ids = valid_visits.nonzero(as_tuple=True)
         visited_city_mask[batch_ids, visited[batch_ids, pos_ids]] = True
 
-        # Máscara combinada: Prohibido atender a ciudades ya visitadas O que sean padding
         combined_mask = visited_city_mask | pad_mask
 
-        # 3. --- DECODER: Media de ciudades visitadas ---
-        # Solo usamos el contexto de las ciudades visitadas reales
-        mask_ctx = visited_city_mask.unsqueeze(-1)    # (B, N, 1)
+        # 2. --- EXTRACCIÓN DEL TOUR E INYECCIÓN DE CPE ---
+        safe_visited = visited.clone()
+        safe_visited[~valid_visits] = 0
 
-        sum_ctx = (memory * mask_ctx).sum(dim=1)
-        count_ctx = mask_ctx.sum(dim=1).clamp(min=1)
-        context_mean = sum_ctx / count_ctx            # (B, D)
+        batch_idx = torch.arange(B, device=device).unsqueeze(1)
+        tour_embeds = memory[batch_idx, safe_visited.long()] # (B, max_cities, D)
 
-        # 4. --- DECODER: Primera y última ciudad ---
-        start_idx = visited_mask_pos.float().argmax(dim=1)
-        last_idx = visited_mask_pos.sum(dim=1) - 1
+        cpe = self.circular_pe(seq_len=max_cities, num_cities=num_cities)
+        tour_embeds = tour_embeds + cpe
 
-        batch_idx = torch.arange(B, device=device)
-        start_city_embed = memory[
-            batch_idx, visited[batch_idx, start_idx].long()
-        ]  # (B, D)
+        # Máscara para ignorar posiciones vacías del tour
+        tour_padding_mask = ~valid_visits
+        no_visits = tour_padding_mask.all(dim=1)
+        tour_padding_mask[no_visits, 0] = False 
+
+        # 3. --- PROCESAMIENTO SECUENCIAL CON LUNA ---
+        # Expandimos el tensor P global para el batch actual
+        p = self.aux_tensor.expand(B, -1, -1) # (B, p_len, D)
         
-        last_city_embed = memory[
-            batch_idx, visited[batch_idx, last_idx].long()
-        ]   # (B, D)
+        # Aplicamos LUNA: Comprime el tour histórico en P y luego lo desempaqueta en el tour
+        tour_embeds, _ = self.tour_luna(tour_embeds, p, tour_padding_mask)
 
-        # Fusión
-        ctx_concat = torch.cat(
-            [context_mean, last_city_embed, start_city_embed], dim=-1
-        )  # (B, 3D)
-        decoder_state = self.ctx_fusion(ctx_concat)  # (B, D)
+        # 4. --- EXTRACCIÓN DE LA ÚLTIMA CIUDAD ---
+        last_seq_idx = torch.clamp(valid_visits.sum(dim=1) - 1, min=0)
+        
+        # El estado del decoder ahora es el embedding de la última ciudad,
+        # pero ya enriquecido linealmente con toda la historia del tour gracias a LUNA
+        decoder_state = tour_embeds[torch.arange(B, device=device), last_seq_idx] # (B, D)
 
         # 5. --- DECODER: Cross-Attention (Glimpse) ---
         query = self.glimpse_proj(decoder_state).unsqueeze(1)
@@ -205,27 +182,18 @@ class TSPTransformer(Transformer):
                 query=query,            
                 key=memory,             
                 value=memory,           
-                key_padding_mask=combined_mask  # Ignora padding y visitadas
+                key_padding_mask=combined_mask  
             )
-
             query = self.norm1(attn_out + query)   
             ff_out = self.ff(query)                
             query = self.norm2(ff_out + query)  
 
-        attn_out = query.squeeze(1)         # (B, D)
+        attn_out = query.squeeze(1)
 
-        # 6. --- DECODER: Pointer scoring ---
-        ptr_query = self.pointer_proj(attn_out)        # (B, D)
-
-        scores = torch.matmul(
-            ptr_query.unsqueeze(1),                    
-            memory.transpose(1, 2)                     
-        ).squeeze(1)                                   # (B, max_cities)
-
+        # 6. --- POINTER NETWORK ---
+        ptr_query = self.pointer_proj(attn_out)        
+        scores = torch.matmul(ptr_query.unsqueeze(1), memory.transpose(1, 2)).squeeze(1)                                   
         scores = scores / math.sqrt(self.embed_dim)    
-
-        # 7. --- DECODER: Masking y Softmax ---
-        # Aplicamos el infinito negativo tanto a las visitadas como al padding
         scores = scores.masked_fill(combined_mask, -1e9)
 
         return scores
