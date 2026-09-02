@@ -22,6 +22,7 @@ def init_worker(model_cls, model_hyperparams, model_weights, input_adapter_confi
     
     model = model_cls(**model_hyperparams)
     model.load_state_dict(model_weights)
+    model.eval()
     
     worker_solver = ModelSolver(model, input_adapter)
 

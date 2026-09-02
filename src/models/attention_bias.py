@@ -16,11 +16,8 @@ class TSPTransformer(Transformer):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         
-        # Un alpha independiente POR CAPA y POR CABEZAL
-        # Encoder: (num_layers, num_heads, 1, 1)
+        # Sesgo independiente POR CAPA y POR CABEZAL (Solo para el Encoder)
         self.alpha_enc = nn.Parameter(torch.zeros(num_encoder_layers, num_heads, 1, 1))
-        # Decoder: (num_glimpses, num_heads, 1, 1)
-        self.alpha_dec = nn.Parameter(torch.zeros(num_glimpses, num_heads, 1, 1))
         
         # --- ENCODER ---
         self.encoder_input_layer = nn.Linear(input_dim, embed_dim)
@@ -72,13 +69,11 @@ class TSPTransformer(Transformer):
         pad_mask_float = torch.zeros_like(pad_mask, dtype=memory.dtype)
         pad_mask_float = pad_mask_float.masked_fill(pad_mask, float('-inf'))
 
-        # Iteramos capa por capa, inyectando el sesgo específico de cada nivel
+        # Iteramos capa por capa, inyectando el sesgo topológico
         for i, layer in enumerate(self.encoder.layers):
-            # Usamos el alpha correspondiente a la capa 'i'
             attn_bias = -self.alpha_enc[i] * distances.unsqueeze(1)
             attn_bias = attn_bias.view(B * self.num_heads, max_cities, max_cities)
             
-            # Pasamos la memoria a través de la capa individual
             memory = layer(
                 memory, 
                 src_mask=attn_bias, 
@@ -124,24 +119,16 @@ class TSPTransformer(Transformer):
         decoder_state = self.ctx_fusion(ctx_concat)  
 
         query = self.glimpse_proj(decoder_state).unsqueeze(1) 
-
-        last_city_idx = visited[batch_idx, last_idx_safe.long()]
-        current_distances = distances[batch_idx, last_city_idx.long(), :] # (B, N)
         
         combined_mask_float = torch.zeros_like(combined_mask, dtype=memory.dtype)
         combined_mask_float = combined_mask_float.masked_fill(combined_mask, float('-inf'))
 
-        # Iteramos el Glimpse usando el alpha específico de cada iteración
         for i in range(self.num_glimpses):
-            glimpse_bias = -self.alpha_dec[i] * current_distances.unsqueeze(1).unsqueeze(2)
-            glimpse_bias = glimpse_bias.view(B * self.num_heads, 1, max_cities)
-            
             attn_out, _ = self.cross_attn(
                 query=query,            
                 key=memory,             
                 value=memory,           
-                key_padding_mask=combined_mask_float,
-                attn_mask=glimpse_bias                 
+                key_padding_mask=combined_mask_float
             )
 
             query = self.norm1(attn_out + query)   
