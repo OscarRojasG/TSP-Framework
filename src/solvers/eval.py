@@ -4,6 +4,7 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from settings import INSTANCE_FOLDER
 from instances.instances import read_instances
+from data.sparsification import sparse_instances
 from solvers.model import ModelSolver 
 from solvers.ortools import ORToolsSolver
 
@@ -47,7 +48,7 @@ def evaluate_ortools_single_instance(instance):
 # ==========================================
 # Función principal de Evaluación y Comparación
 # ==========================================
-def evaluate(model, instance_file, input_adapter_config, num_workers=None):
+def evaluate(model, instance_file, input_adapter_config, num_workers=None, sparse=False):
     """
     Evalúa instancias en paralelo usando el Modelo y OR-Tools, 
     e imprime los costos promedios, el gap y la desviación estándar.
@@ -57,6 +58,9 @@ def evaluate(model, instance_file, input_adapter_config, num_workers=None):
         
     instance_path = INSTANCE_FOLDER / instance_file
     instances = read_instances(instance_path)
+    
+    if sparse:
+        instances = sparse_instances(instances)
 
     print(f"Iniciando evaluación conjunta de {len(instances)} instancias con {num_workers} workers...")
 

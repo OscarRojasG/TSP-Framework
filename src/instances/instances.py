@@ -25,7 +25,7 @@ def read_instances(filename) -> list[TSPInstance]:
     
     return instances
 
-def generate_instances(filename, instance_count=1, cities=20, seed=42):
+def generate_instances(filename, instance_count=1, cities=20, seed=42) -> list[TSPInstance]:
     """
     Genera un archivo con instancias del TSP. 
     'cities' puede ser un entero (ej. 20) o un iterable de enteros (ej. range(5, 51)).
